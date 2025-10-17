@@ -1,18 +1,22 @@
--- Copyright 2021 The Mumble Developers. All rights reserved.
+-- Copyright The Mumble Developers. All rights reserved.
 -- Use of this source code is governed by a BSD-style license
 -- that can be found in the LICENSE file at the root of the
 -- Mumble source tree or at <https://www.mumble.info/LICENSE>.
-
+--
 local xml2lua = require "xml2lua"
 local xmlhandler = require "xmlhandler.tree"
 
 local xmlutils = {}
 
 function xmlutils.get_root(xml)
-	local parser = xml2lua.parser(xmlhandler)
-	parser:parse(xml, WS_NORMALIZE)
-
-	return xmlhandler.root
+	-- Note: it is important to always create a new handler to avoid issues due to
+	-- concurent use of the same handler in multiple concurrent accesses to this function
+	-- Solution taken from
+	-- https://github.com/manoelcampos/xml2lua/issues/92#issuecomment-1843106426
+	local tree = xmlhandler:new()
+	local xmlparser = xml2lua.parser(tree)
+	xmlparser:parse(xml, WS_NORMALIZE)
+	return tree.root
 end
 
 function xmlutils.get_value(key, xml)
