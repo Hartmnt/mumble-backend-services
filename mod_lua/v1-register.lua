@@ -1,4 +1,4 @@
--- Copyright 2021 The Mumble Developers. All rights reserved.
+-- Copyright The Mumble Developers. All rights reserved.
 -- Use of this source code is governed by a BSD-style license
 -- that can be found in the LICENSE file at the root of the
 -- Mumble source tree or at <https://www.mumble.info/LICENSE>.
@@ -62,14 +62,19 @@ function handle(r)
 		return apache2.OK
 	end
 
-	local root = xmlutils.get_root(r:requestbody())
+	local requestbody = r:requestbody()
+	local root = xmlutils.get_root(requestbody)
 	if not root then
-		return 400
+		r:write("Malformed registration request (invalid XML)!\n")
+		r.status = 400
+		return apache2.OK
 	end
 
 	local server = root.server
 	if not server then
-		return 400
+		r:write("Registration XML does not contain a <server> element!\n")
+		r.status = 400
+		return apache2.OK
 	end
 
 	local digest = xmlutils.get_value("digest", server)
