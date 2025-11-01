@@ -3,10 +3,10 @@
 -- that can be found in the LICENSE file at the root of the
 -- Mumble source tree or at <https://www.mumble.info/LICENSE>.
 
-local json = require "json"
+local json = require "JSON"
 local openssl = require "openssl"
 
-local filepath = "build-number.json"
+local filepath = "/var/www/mumble.info/build-number.json"
 
 local allowed_hashes = {
 	-- "Token"
@@ -14,6 +14,9 @@ local allowed_hashes = {
 }
 
 local function hash_token(token)
+	if token == nil then
+		return ""
+	end
 	local md = openssl.digest.get("blake2b512")
 	local digest = md:digest(token)
 	return openssl.hex(digest)
@@ -30,6 +33,8 @@ local function is_parameter_ok(parameter)
 end
 
 function handle(r)
+	r:warn("New build-number request")
+
 	r.content_type = "text/html"
 
 	if r.method ~= "GET" then
@@ -39,9 +44,14 @@ function handle(r)
 	local args = r:parseargs()
 
 	local token = args["token"]
-	if not is_parameter_ok(token) or not allowed_hashes[hash_token(token)] then
-		return 401
-	end
+
+	local parameter_ok = is_parameter_ok(token)
+
+	local token_hash = hash_token(token)
+
+	local has_write_access = parameter_ok and (allowed_hashes[token_hash] or false)
+
+	r:warn(string.format("Request has write access: %s", has_write_access))
 
 	local commit = args["commit"]
 	if not is_parameter_ok(commit) then
@@ -57,31 +67,47 @@ function handle(r)
 		return apache2.OK
 	end
 
+	r:warn("Parameter okay")
+
 	local file = assert(io.open(filepath, "r"))
 	local content = file:read("*a")
 	file:close()
 
-	local table = json.decode(content)
+	local table = json:decode(content)
 	if not table then
 		table = { }
 	end
 
 	if not table[version] then
-		table[version] = { ["current"] = -1 }
+		if has_write_access then
+			table[version] = { ["current"] = -1 }
+		else
+			-- This would have required write access but the requesting user doesn't have that
+			return 401
+		end
 	end
 
 	if not table[version][commit] then
-		table[version]["current"] = table[version]["current"] + 1
-		table[version][commit] = table[version]["current"]
+		if has_write_access then
+			table[version]["current"] = table[version]["current"] + 1
+			table[version][commit] = table[version]["current"]
+		else
+			-- This would have required write access but the requesting user doesn't have that
+			return 401
+		end
 	end
 
 	r:write(table[version][commit])
 
-	content = json.encode(table) .. "\n"
+	if has_write_access then
+		content = json:encode(table) .. "\n"
 
-	file = assert(io.open(filepath, "w"))
-	file:write(content)
-	file:close()	
+		file = assert(io.open(filepath, "w"))
+		file:write(content)
+		file:close()
+	end
+
+	r:warn("Request successful")
 
 	return apache2.OK
 end
